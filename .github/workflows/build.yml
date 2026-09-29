@@ -1,0 +1,130 @@
+# Firmware build check. The S3 project only: the C6 bridge needs
+# tools/c6_wifi_rc/main/wifi_creds.h, which is gitignored on purpose, so it
+# cannot be built from a clean checkout without inventing credentials.
+#
+# IDF version is pinned to the development toolchain (v5.5.x).
+# Keep it in step with the local toolchain or CI stops telling the truth
+# about the local build.
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  esp32s3:
+    name: ESP32-S3 firmware
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build
+        uses: espressif/esp-idf-ci-action@v1
+        with:
+          esp_idf_version: v5.5.2
+          target: esp32s3
+
+  host-tools:
+    name: Host tools syntax
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Byte-compile tools/
+        run: python -m compileall -q tools/
+
+  host-tests:
+    # The suites the project's says to run by hand after touching the estimator,
+    # the params store or the dashboard. They compile the REAL C freestanding
+    # against stub headers, so they test the firmware source rather than a
+    # Python model of it, and every one of them is mutation-tested. None need
+    # numpy or scipy - stdlib, clang and node are the whole dependency set.
+    #
+    # The s164 walk log is checked in gzipped (tools/fixtures/s164_walk.csv.gz)
+    # for horiz_ctest.py and vel_hold_test.py.
+    #
+    # WINDOWS, deliberately. All twelve harnesses build their shim with
+    # __declspec(dllexport) into a .dll and link with -Wl,-noentry - each
+    # carries its own copy of that, and none of it is portable. Running them
+    # on the platform they were written for tests exactly what the author runs by
+    # hand, and needs no edit to code that gates the estimator. Porting the
+    # shims to ELF is a separate job with its own risk; it is not something
+    # to do as a side effect of turning CI on.
+    #
+    # shell: bash on every step so a failure mid-block fails the job -
+    # pwsh only checks the exit code of the last line.
+    name: Host tests
+    runs-on: windows-latest
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: clang version
+        run: clang --version
+
+      # The vertical filter: C against the Python reference, then the full
+      # Log A replay, the gating branches and the alt-hold sim.
+      - name: Vertical filter
+        run: |
+          python tools/vert_ctest.py
+          python tools/vert_replay.py tools/fixtures/logA_s23.csv.gz
+          python tools/vert_gating_test.py
+          python tools/vert_runaway_test.py
+          python tools/alt_hold_sim.py
+          python tools/host_c.py
+          python tools/test_level_rotation.py
+          python tools/thr_vcomp_test.py
+
+      # params.c compiled freestanding over the real NVS load path; the
+      # MS5611 CRC and compensation against TE's published worked examples;
+      # the PMW3901 burst decode, sample checks and init tables.
+      - name: Params, sensors, GPS
+        run: |
+          python tools/params_migrate_test.py
+          python tools/ms5611_test.py
+          python tools/pmw3901_test.py
+          python tools/lsm6dsox_liveness_test.py
+          python tools/telem_line_test.py
+          python tools/viewer_test.py
+          python tools/ubx_test.py
+          python tools/geo_test.py
+
+      - name: PID, mixer, blackbox
+        run: |
+          python tools/pid_retune_test.py
+          python tools/pid_windup_test.py
+          python tools/setpoint_safety_test.py
+          python tools/blackbox_frame_test.py
+          python tools/blackbox_pull_test.py
+          python tools/iterm_gate_test.py
+
+      # Horizontal estimator and velocity hold against the s164 walk, the
+      # altitude reference, and the GNSS interference guard.
+      - name: Horizontal, alt_ref, GNSS guard
+        run: |
+          python tools/horiz_ctest.py
+          python tools/vel_hold_test.py
+          python tools/alt_ref_test.py
+          python tools/gnss_guard_test.py
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # The C6 dashboard's real render() under vm against a stubbed DOM.
+      # Nothing else tests that file, and it is the surface every bench
+      # session is read through.
+      - name: Dashboard
+        run: node tools/dash_health_test.js

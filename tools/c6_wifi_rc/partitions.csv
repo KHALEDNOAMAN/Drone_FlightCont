@@ -1,0 +1,14 @@
+# ESP32-C6 telemetry bridge partition table.
+#
+# The XIAO C6 has 4 MB of flash, but the default single-app table caps
+# the app at 1 MB. Adding mDNS took the binary to 0xF1C30 - 94% of that
+# 1 MB, i.e. the next feature would have failed the link with a partition
+# overflow rather than anything obviously wrong.
+#
+# 3 MB app on a 4 MB chip leaves plenty of headroom and ~1 MB spare.
+# nvs stays at its stock offset (WiFi calibration data lives there).
+#
+# Name,     Type, SubType,  Offset,   Size
+nvs,        data, nvs,      0x9000,   0x6000
+phy_init,   data, phy,      0xf000,   0x1000
+factory,    app,  factory,  0x10000,  0x300000

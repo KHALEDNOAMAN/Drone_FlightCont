@@ -1,0 +1,10 @@
+## Managed components fetched from the Espressif registry.
+##
+## mdns: publishes the dashboard as http://drone.local/ so the address
+## does not change with the network. The bench router and the phone
+## hotspot hand out different subnets (192.168.1.x vs 192.168.65.x), so
+## without this the URL has to be read off the boot log every time.
+dependencies:
+  espressif/mdns: "^1.2.0"
+  idf:
+    version: ">=5.0"

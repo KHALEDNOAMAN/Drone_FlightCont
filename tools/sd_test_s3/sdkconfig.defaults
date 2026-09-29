@@ -1,0 +1,11 @@
+# Bench test for the microSD module, S3 alone on a breadboard.
+CONFIG_IDF_TARGET="esp32s3"
+
+# Same console as the flight firmware - output on the native USB port.
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+
+# IDENTICAL flash size + partition table to the flight firmware, so
+# flashing this and flashing back only ever rewrites the app slot.
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"

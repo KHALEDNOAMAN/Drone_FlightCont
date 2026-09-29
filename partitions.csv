@@ -1,0 +1,19 @@
+# Custom partition table — the board has 16 MB of flash (verified by
+# esptool: Device 4018, "Detected flash size: 16MB"). The default
+# single-app table plus a 2 MB flash-size setting left ~14 MB
+# unreachable and boot logged:
+#   W spi_flash: Detected size(16384k) larger than the size in the
+#   binary image header(2048k). Using the size in the binary image header.
+#
+# nvs stays at its original offset and size ON PURPOSE: it holds the
+# magnetometer calibration. Moving or resizing it would orphan that data
+# and force a full MAGSET recal.
+#
+# The 12 MB `blackbox` flash partition that used to sit after the app was
+# removed the blackbox has logged to the SD card since
+# (components/blackbox) and nothing opened the partition.
+#
+# Name,     Type, SubType,  Offset,   Size
+nvs,        data, nvs,      0x9000,   0x6000
+phy_init,   data, phy,      0xf000,   0x1000
+factory,    app,  factory,  0x10000,  0x200000

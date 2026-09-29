@@ -1,0 +1,17 @@
+Copyright (c) Malek Almousle. All rights reserved.
+
+This software and its accompanying documentation are proprietary and
+confidential. No license, express or implied, is granted to any person to
+use, copy, modify, merge, publish, distribute, sublicense, or sell copies
+of this software, in whole or in part, by any means.
+
+An open-source license is intended for this project once it is finished.
+Until that license is published in this file, the terms above apply.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+
+This is experimental flight control firmware for an uncrewed aircraft. It
+is not airworthy and not certified. Operating it can destroy property and
+cause serious injury. The author accepts no liability for any use of it.

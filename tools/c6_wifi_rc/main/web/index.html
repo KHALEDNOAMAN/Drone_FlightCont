@@ -1,0 +1,1072 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>DRONE TELEMETRY</title>
+<style>
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html,body { background:#0d1117; color:#e6edf3;
+      font-family:system-ui,-apple-system,sans-serif; }
+  /* 1100px was the reason half a 1080p screen sat empty and the grid
+     could only ever fit 4 columns: 1100/240 = 4.58. Widened so five
+     columns fit, which puts all ten cards in TWO rows. */
+  body { padding:10px; max-width:1720px; margin:0 auto; }
+
+  /* header */
+  #bar { display:flex; align-items:center; gap:10px; flex-wrap:wrap;
+      padding:8px 12px; background:#161b22; border:1px solid #30363d;
+      border-radius:10px; margin-bottom:10px; }
+  #bar h1 { font-size:15px; font-weight:700; letter-spacing:.04em; }
+  .badge { font:700 12px/1 ui-monospace,monospace; padding:6px 10px;
+      border-radius:6px; border:1px solid #30363d; color:#8b949e; }
+  .badge.link-ok   { color:#3fb950; border-color:#238636; }
+  .badge.link-down { color:#f85149; border-color:#da3633; }
+  .badge.armed     { color:#0d1117; background:#f85149; border-color:#f85149; }
+  .badge.disarmed  { color:#3fb950; border-color:#238636; }
+  #blocked { font:12px/1.3 ui-monospace,monospace; color:#d29922; width:100%; }
+
+  /* grid of cards */
+  #grid { display:grid; gap:10px;
+      grid-template-columns:repeat(auto-fit,minmax(240px,1fr)); }
+  .card { background:#161b22; border:1px solid #30363d; border-radius:10px;
+      padding:10px 12px; }
+  .card h2 { font-size:11px; font-weight:600; letter-spacing:.08em;
+      text-transform:uppercase; color:#8b949e; margin-bottom:8px; }
+
+  /* stat tiles: label muted, value mono */
+  .row { display:flex; justify-content:space-between; align-items:baseline;
+      padding:2px 0; gap:8px; }
+  .row .l { font-size:12px; color:#8b949e; }
+  .row .v { font:600 15px/1.3 ui-monospace,monospace; color:#e6edf3;
+      text-align:right; }
+  .row .v.big { font-size:22px; }
+  .row .v.dim { color:#8b949e; font-weight:400; }
+
+  /* bars (throttle, motors): single neutral accent, value as text */
+  .bar-wrap { display:flex; align-items:center; gap:8px; padding:3px 0; }
+  .bar-wrap .l { font-size:12px; color:#8b949e; width:52px; flex:none; }
+  .bar-track { flex:1; height:10px; background:#0d1117;
+      border:1px solid #30363d; border-radius:5px; overflow:hidden; }
+  .bar-fill { height:100%; width:0%; background:#58a6ff; border-radius:4px; }
+  .bar-fill.warn { background:#d29922; }
+  .bar-fill.bad  { background:#f85149; }
+  .bar-wrap .v { font:600 13px/1 ui-monospace,monospace; width:58px;
+      text-align:right; flex:none; }
+
+  /* motors in physical layout: front row on top */
+  #motors-note { font-size:11px; color:#8b949e; margin-bottom:6px; }
+
+  /* health chips: symbol + label, never color alone */
+  .chips { display:flex; flex-wrap:wrap; gap:6px; }
+  .chip { font:600 12px/1 ui-monospace,monospace; padding:6px 8px;
+      border-radius:6px; border:1px solid #30363d; color:#8b949e; }
+  .chip.ok   { color:#3fb950; border-color:#238636; }
+  .chip.bad  { color:#f85149; border-color:#da3633; }
+  /* Held values, dimmed: the chips below are the LAST GOOD reading, not a
+     fresh one. Never let a held value look like a live one. */
+  .chips.stale .chip { opacity:.40; }
+  #h_stale { font:600 11px/1.4 ui-monospace,monospace; color:#d29922;
+      margin-top:6px; }
+
+  /* PID editor */
+  table.pid { width:100%; border-collapse:collapse; }
+  table.pid th, table.pid td { padding:4px 6px; text-align:right;
+      font:13px/1.3 ui-monospace,monospace; }
+  table.pid th { color:#8b949e; font-weight:600; font-size:11px;
+      text-transform:uppercase; letter-spacing:.06em; }
+  table.pid td.rowname { color:#8b949e; text-align:left; font-size:12px;
+      font-family:system-ui,sans-serif; }
+  table.pid input { width:74px; background:#0d1117; color:#e6edf3;
+      border:1px solid #30363d; border-radius:6px; padding:5px 6px;
+      font:600 13px/1 ui-monospace,monospace; text-align:right; }
+  table.pid input:focus { outline:none; border-color:#58a6ff; }
+  .btnrow { display:flex; gap:8px; align-items:center; margin-top:8px; }
+  button { border:0; border-radius:8px; padding:9px 16px; font-weight:700;
+      font-size:13px; color:#fff; background:#238636; cursor:pointer; }
+  button.secondary { background:#30363d; }
+  #pidmsg { font:12px/1.3 ui-monospace,monospace; color:#8b949e; }
+  #pidmsg.ok  { color:#3fb950; }
+  #pidmsg.err { color:#f85149; }
+
+  /* collapsible card: click the heading. Collapsed it is one line, so the
+     console below it is not pushed off the screen by a tuner nobody is
+     using right now. */
+  .card h2.toggle { cursor:pointer; user-select:none; margin-bottom:0; }
+  .card h2.toggle .hint { text-transform:none; letter-spacing:0;
+      font-weight:400; margin-left:6px; }
+  .card:not(.collapsed) h2.toggle { margin-bottom:8px; }
+  .card.collapsed .cbody { display:none; }
+
+  /* console pane - most of a screen, it is what the bench is read through */
+  #console { margin-top:8px; padding:8px; background:#0d1117;
+      border:1px solid #30363d; border-radius:6px; min-height:180px;
+      max-height:62vh; overflow:auto;
+      font:12px/1.45 ui-monospace,monospace; color:#8b949e;
+      white-space:pre; }
+
+  .v.warn { color:#d29922; }
+  .v.bad  { color:#f85149; }
+
+  /* battery */
+  .badge.batt-ok   { color:#3fb950; border-color:#238636; }
+  .badge.batt-warn { color:#d29922; border-color:#9e6a03; }
+  .badge.batt-bad  { color:#0d1117; background:#f85149; border-color:#f85149; }
+  #vb_note { font:12px/1.35 ui-monospace,monospace; color:#8b949e;
+      margin-top:6px; cursor:pointer; }
+  #vb_note.warn { color:#d29922; }
+  #vb_note.bad  { color:#f85149; }
+
+  /* ground distance */
+  #tof_note { font:12px/1.35 ui-monospace,monospace; color:#8b949e;
+      margin-top:6px; }
+  #tof_note.warn { color:#d29922; }
+  #ah_note { font:12px/1.35 ui-monospace,monospace; color:#8b949e;
+             margin-top:6px; }
+  #ah_note.warn { color:#d29922; }
+  #ah_note.ok   { color:#3fb950; }
+</style>
+</head>
+<body>
+
+<div id="bar">
+  <h1>DRONE TELEMETRY</h1>
+  <span id="link" class="badge link-down">LINK &#10007;</span>
+  <span id="armed" class="badge disarmed">DISARMED</span>
+  <span id="age" class="badge">&mdash;</span>
+  <span id="vb_badge" class="badge">&mdash;&nbsp;V</span>
+  <span id="blocked"></span>
+</div>
+
+<div id="grid">
+
+  <div class="card">
+    <h2>Battery</h2>
+    <div class="row"><span class="l">Pack</span><span class="v big" id="vb_pack">&mdash;</span></div>
+    <div class="bar-wrap"><span class="l">Charge est.</span>
+      <div class="bar-track"><div class="bar-fill" id="vb_bar"></div></div>
+      <span class="v" id="vb_pct">&mdash;</span></div>
+    <div class="row"><span class="l">Per cell</span><span class="v" id="vb_cell">&mdash;</span></div>
+    <div class="row"><span class="l">Lowest seen</span><span class="v dim" id="vb_min">&mdash;</span></div>
+    <div class="row"><span class="l">Sag from rest</span><span class="v dim" id="vb_sag">&mdash;</span></div>
+    <div id="vb_note">waiting for a pack&hellip;</div>
+  </div>
+
+  <div class="card">
+    <h2>Attitude &deg;</h2>
+    <div class="row"><span class="l">Roll</span><span class="v big" id="roll">&mdash;</span></div>
+    <div class="row"><span class="l">Pitch</span><span class="v big" id="pitch">&mdash;</span></div>
+    <div class="row"><span class="l">Yaw</span><span class="v big" id="yaw">&mdash;</span></div>
+    <div class="row"><span class="l">Desired R / P</span><span class="v dim" id="des_rp">&mdash;</span></div>
+    <div class="row"><span class="l">Desired yaw rate</span><span class="v dim" id="des_y">&mdash;</span></div>
+  </div>
+
+  <div class="card">
+    <h2>IMU</h2>
+    <div class="row"><span class="l">Gyro X / Y / Z &nbsp;dps</span><span class="v" id="gyro">&mdash;</span></div>
+    <div class="row"><span class="l">Accel X / Y / Z &nbsp;g</span><span class="v" id="accel">&mdash;</span></div>
+    <div class="row"><span class="l">Loop dt</span><span class="v dim" id="dt">&mdash;</span></div>
+  </div>
+
+  <div class="card">
+    <h2>Baro</h2>
+    <div class="row"><span class="l">Altitude</span><span class="v big" id="alt">&mdash;</span></div>
+    <div class="row"><span class="l">Pressure</span><span class="v" id="press">&mdash;</span></div>
+    <div class="row"><span class="l">Temperature</span><span class="v" id="temp">&mdash;</span></div>
+  </div>
+
+  <div class="card">
+    <h2>Ground distance</h2>
+    <div class="row"><span class="l">Distance to ground</span><span class="v big" id="tof">&mdash;</span></div>
+    <div class="row"><span class="l">In metres</span><span class="v dim" id="tof_m">&mdash;</span></div>
+    <div id="tof_note">waiting for the sensor&hellip;</div>
+  </div>
+
+  <div class="card">
+    <h2>Altitude hold</h2>
+    <div class="row"><span class="l">Mode</span><span class="v big" id="ah_mode">&mdash;</span></div>
+    <div class="row"><span class="l">Estimated altitude</span><span class="v" id="ah_alt">&mdash;</span></div>
+    <div class="row"><span class="l">Climb rate</span><span class="v" id="ah_vz">&mdash;</span></div>
+    <div class="row"><span class="l">Setpoint</span><span class="v dim" id="ah_sp">&mdash;</span></div>
+    <div class="row"><span class="l">Accel bias learned</span><span class="v dim" id="ah_bias">&mdash;</span></div>
+    <!-- the author's altitude reference (field 70). Shown beside the
+         filter's own altitude so the two can be compared in flight.
+         It drives NOTHING - the point is to find out whether it
+         deserves to before it does. -->
+    <div class="row"><span class="l">Alt reference (ToF+baro)</span><span class="v" id="ah_ref">&mdash;</span></div>
+    <div class="row"><span class="l">&nbsp;&nbsp;vs filter</span><span class="v dim" id="ah_ref_d">&mdash;</span></div>
+    <div id="ah_note">waiting for the estimator&hellip;</div>
+  </div>
+
+  <div class="card">
+    <h2>RC input</h2>
+    <div class="bar-wrap"><span class="l">Throttle</span>
+      <div class="bar-track"><div class="bar-fill" id="thr_bar"></div></div>
+      <span class="v" id="thr">&mdash;</span></div>
+    <div class="row"><span class="l">Roll / Pitch / Yaw</span><span class="v" id="rc_rpy">&mdash;</span></div>
+    <div class="row"><span class="l">Arm channel (CH5)</span><span class="v" id="rc_arm">&mdash;</span></div>
+    <div class="row"><span class="l">RC link</span><span class="v" id="rc_link">&mdash;</span></div>
+    <div class="row"><span class="l">Frozen frames</span><span class="v" id="rc_frozen">&mdash;</span></div>
+  </div>
+
+  <div class="card">
+    <h2>GPS</h2>
+    <div class="row"><span class="l">Sats / fix</span><span class="v" id="gps">&mdash;</span></div>
+    <div class="row"><span class="l">Lat, Lon</span><span class="v dim" id="latlon">&mdash;</span></div>
+  </div>
+
+  <div class="card">
+    <h2>Motors &micro;s</h2>
+    <div id="motors-note">M1 FR &middot; M2 FL &middot; M3 RR &middot; M4 RL (front = M1+M2)</div>
+    <div class="bar-wrap"><span class="l">M1 FR</span>
+      <div class="bar-track"><div class="bar-fill" id="m1b"></div></div><span class="v" id="m1">&mdash;</span></div>
+    <div class="bar-wrap"><span class="l">M2 FL</span>
+      <div class="bar-track"><div class="bar-fill" id="m2b"></div></div><span class="v" id="m2">&mdash;</span></div>
+    <div class="bar-wrap"><span class="l">M3 RR</span>
+      <div class="bar-track"><div class="bar-fill" id="m3b"></div></div><span class="v" id="m3">&mdash;</span></div>
+    <div class="bar-wrap"><span class="l">M4 RL</span>
+      <div class="bar-track"><div class="bar-fill" id="m4b"></div></div><span class="v" id="m4">&mdash;</span></div>
+  </div>
+
+  <div class="card">
+    <h2>Sensor health</h2>
+    <div class="chips" id="chips_health">
+      <span class="chip" id="h_imu">&mdash; IMU</span>
+      <span class="chip" id="h_baro">&mdash; BARO</span>
+      <span class="chip" id="h_mag">&mdash; MAG</span>
+      <span class="chip" id="h_9dof">&mdash; 9-DOF</span>
+      <!-- VL53L0X. NOT driven by the field-52 bitmask - it has no bit
+           there - so it is rendered from field 62 on its own path. See
+           renderTofChip for why "no target" is not a fault. -->
+      <span class="chip" id="h_tof">&mdash; ToF</span>
+      <!-- MS5611 control barometer. Absent until the part is fitted, and
+           absent is NOT a fault - see the note in the render code. -->
+      <span class="chip" id="h_baro2">&mdash; BARO2</span>
+    </div>
+    <div id="h_stale"></div>
+  </div>
+
+  <div class="card collapsed" id="pidcard" style="grid-column:1/-1">
+    <h2 class="toggle" id="pidhead"><span id="pidarrow">&#9656;</span>
+      PID &mdash; live tuning<span class="hint" id="pidhint">(click to open)</span></h2>
+    <div class="cbody">
+    <table class="pid">
+      <tr><th></th><th>Kp</th><th>Ki</th><th>Kd</th><th>FC active</th></tr>
+      <tr>
+        <td class="rowname">Rate (roll+pitch)</td>
+        <td><input id="i_kpr" inputmode="decimal"></td>
+        <td><input id="i_kir" inputmode="decimal"></td>
+        <td><input id="i_kdr" inputmode="decimal"></td>
+        <td id="a_rate">&mdash;</td>
+      </tr>
+      <tr>
+        <td class="rowname">Yaw rate</td>
+        <td><input id="i_kpy" inputmode="decimal"></td>
+        <td><input id="i_kiy" inputmode="decimal"></td>
+        <td><input id="i_kdy" inputmode="decimal"></td>
+        <td id="a_yaw">&mdash;</td>
+      </tr>
+    </table>
+    <div class="btnrow">
+      <button id="send">Send to FC</button>
+      <button id="reload" class="secondary">Fill from FC</button>
+      <span id="pidmsg"></span>
+    </div>
+    </div>
+  </div>
+
+  <div class="card" style="grid-column:1/-1">
+    <h2>FC console &mdash; serial commands</h2>
+    <div class="btnrow" style="margin-top:0;flex-wrap:wrap">
+      <button class="cmd secondary" data-cmd="STATS">STATS</button>
+      <button class="cmd secondary" data-cmd="GYROCAL">GYROCAL</button>
+      <button class="cmd secondary" data-cmd="VBAT">VBAT</button>
+      <button class="cmd secondary" data-cmd="TOF">TOF</button>
+      <button class="cmd secondary" data-cmd="I2CSCAN">I2CSCAN</button>
+      <button class="cmd secondary" data-cmd="STREAM,0">USB stream off</button>
+      <button class="cmd secondary" data-cmd="STREAM,1">USB stream on</button>
+      <button class="cmd secondary" data-cmd="HELP">HELP</button>
+    </div>
+    <div class="btnrow">
+      <input id="cmdline" placeholder="type a command, e.g. MAGSET,0,0,0"
+             style="flex:1;min-width:180px;background:#0d1117;color:#e6edf3;
+                    border:1px solid #30363d;border-radius:6px;padding:8px;
+                    font:13px/1 ui-monospace,monospace">
+      <button id="cmdsend">Send</button>
+      <button id="cmdclear" class="secondary">Clear</button>
+    </div>
+    <pre id="console">(no output yet — press STATS)</pre>
+  </div>
+
+</div>
+
+<script>
+"use strict";
+/* CSV field map - authoritative copy in components/telemetry/telemetry.c.
+   0 armed 1 roll 2 pitch 3 yaw 4 desR 5 desP 6 desYrate 13 temp 15 pressPa
+   16 alt 17 lat 18 lon 19 sats 21-24 m1..m4 38 dt 39-41 gyro 42-44 accel
+   45 thr 46-51 pid(rate kp,ki,kd, yaw kp,ki,kd) 52 health 53 fix 54 blocked
+   55-58 raw RC r,p,y,arm 59 frozen 60 rc_link 61 vbat_mv 62 tof_mm
+   63 alt_est_m 64 vz_ms 65 accz_bias 66 alt_sp_m 67 vert_flags
+   68 baro2_pa 69 baro2_alt_m 70 alt_ref_m 71 alt_ref_valid */
+var lastOk = 0, pidFilled = false;
+
+function $(id){ return document.getElementById(id); }
+function num(f,i,d){ var v = parseFloat(f[i]); return isFinite(v) ? v.toFixed(d) : "—"; }
+
+function setBar(id, us){
+  var pct = Math.max(0, Math.min(100, (us - 1000) / 10));
+  $(id).style.width = pct + "%";
+}
+function chip(id, ok, label){
+  var e = $(id);
+  e.className = "chip " + (ok ? "ok" : "bad");
+  e.textContent = (ok ? "✓ " : "✗ ") + label;
+}
+
+/* Dim the health row and say why, instead of painting an unreadable field
+   as four dead sensors. A hole in the data is not a measurement. */
+/* Latches once an MS5611 has ever answered in this page session, so the
+   chip can tell "no such part on the board" from "the part died", which
+   is the entire question the second barometer was fitted to answer. */
+var baro2Seen = false;
+
+/* Same latch for the VL53L0X, and for a sharper reason than BARO2's.
+   The question this chip exists to answer is "did the ToF die DURING the
+   session" - alive in s123/124/139, dead in s121/142/152 on the same
+   power-ups. A bare red chip cannot tell that from "never detected at
+   boot", and those two want completely different actions. */
+var tofSeen = false;
+
+/* The ToF chip, rendered from field 62 (tof_mm) rather than the field-52
+   bitmask, because the VL53L0X has no bit in sensor_health.
+
+   THE TRAP THIS AVOIDS: outdoors in sunlight the sensor answers normally
+   and reports 65535 = "alive, nothing in range" for the whole session.
+   That is the SENSOR WORKING. Painting it red would cry wolf through
+   every outdoor flight and train the eye to ignore the one chip that
+   matters. 0 is the death signal; 65535 is not.
+
+   Field 62 is validated the same way field 52 is - whole-string digits,
+   never a bare parseInt, which reads "12abc" as 12. */
+function renderTofChip(txt, present){
+  var e = $("h_tof");
+  if (!present || !/^\s*\d+\s*$/.test(txt)){
+    e.className = "chip";
+    e.textContent = "— ToF (unreadable)";
+    return;
+  }
+  var mm = parseInt(txt, 10);
+  if (mm > 0) tofSeen = true;
+
+  if (mm === 0){
+    /* Seen alive earlier in this page session and now silent = it died
+       mid-session, which is the whole point of the chip. Never seen at
+       all = absent at boot, or the page was loaded after it had already
+       gone, or USB-only power (the sensor rail is battery-fed). */
+    e.className = tofSeen ? "chip bad" : "chip";
+    e.textContent = tofSeen ? "✗ ToF DIED" : "— ToF (not seen)";
+  } else if (mm === 65535){
+    e.className = "chip ok";
+    e.textContent = "✓ ToF (no target)";
+  } else {
+    e.className = "chip ok";
+    e.textContent = "✓ ToF " + (mm / 1000).toFixed(2) + " m";
+  }
+}
+
+function setHealthStale(why){
+  $("chips_health").className = "chips" + (why ? " stale" : "");
+  $("h_stale").textContent = why || "";
+}
+
+/* Keep in step with PREARM_* in components/common/nav_state.h. A bit
+   with no entry here renders as nothing at all, so the pilot would see
+   "arming blocked:" followed by an empty list - which is worse than no
+   message, because it reads like a firmware fault rather than a
+   pre-flight check doing its job.
+
+   THAT IS NOT HYPOTHETICAL - it happened. 969c652 added bit 7 (128,
+   PREARM_PARAMS_DEFAULTED) to the firmware and did not
+   touch this file; two later commits edited index.html without noticing.
+   A board refusing to arm purely because its saved tuning had been
+   rejected displayed an empty list for two days. The render loop below
+   now names any leftover bit as a raw mask, so the NEXT one cannot go
+   silent the same way, and tools/dash_health_test.js covers both. */
+var BLOCK_BITS = [[1,"gyro-moving"],[2,"not-level"],[4,"sticks"],
+                  [8,"throttle-high"],[16,"fusion-warmup"],
+                  [32,"SENSOR DEAD"],[64,"alt-hold has no ground reference"],
+                  [128,"PARAMS DEFAULTED (SAVE to clear)"],
+                  [256,"BLACKBOX NOT READY (BBINFO)"],
+                  [512,"ARM SWITCH: cycle it OFF then ON"]];
+/* fix_type: UBX NAV-PVT fixType (0 none, 1 DR, 2 2D, 3 3D, 4 GNSS+DR,
+   5 time) - also covers the NMEA path, where 1 = none. */
+var FIX = {0:"none", 1:"none/DR", 2:"2D", 3:"3D", 4:"3D+DR", 5:"time"};
+
+/* ---- Battery: INA226 pack voltage, CSV field 61 (mV) ----------------
+   Voltage-only install (no shunt yet), so there is no current, no mAh
+   and no fuel gauge - what this card gives is voltage, and the two
+   things you actually read voltage FOR:
+
+     - per-cell now, because 4S/3S packs are only comparable per cell;
+     - SAG, i.e. how far the pack falls under throttle. The flight-4
+       slow sink was traced to sag, not to the controller, and this is
+       the number that proves it in real time instead of after a
+       blackbox pull.
+
+   Thresholds are per cell UNDER LOAD. A hovering pack reads ~0.3-0.5 V
+   per cell below its resting voltage, so a hover at 3.6 V/cell is not
+   the same alarm as a bench reading of 3.6 V/cell. */
+var CELL_WARN = 3.75, CELL_CRIT = 3.55;
+
+/* Cell count. The first version derived it as ceil(v/4.25) from the FIRST
+   reading, CLAMPED into 1..6, and latched that forever. It had two faults
+   and hit both at once: one corrupted sample read 33.41 V -
+   exactly double the real 16.70, the signature of a one-bit shift on a
+   100 kHz bus with no external pull-ups - the clamp turned an implied 8S
+   into a legal-looking 6S, and the latch made it permanent. A full 4S
+   pack then read 2.79 V/cell and said LAND NOW.
+
+   Both faults are fixed here, and the first one is the real lesson:
+   NEVER clamp an implausible value into range. A pack implying more than
+   CELL_MAX cells is not a pack this aircraft flies, so the sample is
+   dropped whole - it does not set the count, and it does not touch the
+   min/max trackers either. Then the count only changes after CELL_LATCH
+   consecutive samples agree on it, which no single glitch can fake, and
+   which doubles as pack-swap detection: swap 4S for 3S mid-session and
+   the count re-latches after ~1.2 s instead of never. */
+var CELL_MAX = 6, CELL_LATCH = 5, BAD_RUN_SHOW = 8;
+var battCells = 0, battMax = 0, battMin = 0;
+var cellCand = 0, cellRun = 0, battBadRun = 0;
+
+/* Implied cell count, or 0 for "this is not a pack". 4.25 V is above any
+   charged LiPo cell, so ceil() cannot round a healthy pack down. */
+function cellsFor(v){
+  var n = Math.ceil(v / 4.25);
+  return (n >= 1 && n <= CELL_MAX) ? n : 0;
+}
+
+/* Adopt a count only on a sustained reading, and only UPWARD.
+   Downward is the dangerous direction: a 4S dragged under 12.75 V by a
+   dying pack implies "3S" just as convincingly as an actual 3S pack
+   does, and re-latching there would turn 3.19 V/cell - an emergency -
+   into 4.25 V/cell and make the LAND NOW warning disappear at exactly
+   the moment it is needed. Sagging down is common; swapping to a
+   smaller pack without reloading the page is not. So a smaller pack
+   costs a click on the note (battReset), and a dying one keeps
+   screaming. Resets min/max on adoption - they belonged to the old
+   pack. */
+function battObserve(n){
+  if (n === cellCand) cellRun++; else { cellCand = n; cellRun = 1; }
+  if (cellRun >= CELL_LATCH && n > battCells){
+    battCells = n;
+    battMax = 0;
+    battMin = 0;
+  }
+}
+
+/* LiPo state-of-charge from open-circuit voltage - the standard curve
+   approximation, not a linear ramp (a linear one reads 50% at 3.75 V
+   where the real pack is near 30%). Under throttle it reads pessimistic
+   by design: sag is counted against you. */
+function socPct(vc){
+  var p = 123 - 123 / Math.pow(1 + Math.pow(vc / 3.7, 80), 0.165);
+  return Math.max(0, Math.min(100, p));
+}
+
+function battReset(){ battCells = 0; battMax = 0; battMin = 0;
+                      cellCand = 0; cellRun = 0; battBadRun = 0; }
+
+function renderBatt(mv){
+  var pack = $("vb_pack"), badge = $("vb_badge"), note = $("vb_note");
+
+  /* 0 = the FC has no number for us: chip not found at boot, or the
+     reads have been failing for a second. Never a stale value - see
+     ina226_cached_mv(). */
+  if (!(mv > 0)){
+    pack.textContent = "—";
+    pack.className = "v big";
+    badge.textContent = "no pack";
+    badge.className = "badge";
+    $("vb_pct").textContent = $("vb_cell").textContent = "—";
+    $("vb_min").textContent = $("vb_sag").textContent = "—";
+    $("vb_bar").style.width = "0%";
+    note.className = "";
+    note.textContent = "INA226 reports nothing — running on USB, or the "
+                     + "chip was not found at boot (type VBAT for which).";
+    return;
+  }
+
+  var v = mv / 1000;
+  var n = cellsFor(v);
+
+  /* Not a pack. Drop the sample WHOLE and leave the card showing the
+     last good render - a single glitch must not flicker the display,
+     and must never reach the trackers. Only a run of them is worth
+     saying out loud, because then it is not a glitch. */
+  if (!n){
+    if (++battBadRun >= BAD_RUN_SHOW){
+      note.className = "bad";
+      note.textContent = "reading implausible — " + v.toFixed(2) + " V is "
+                       + "not a pack this aircraft flies. Check the INA226 "
+                       + "VBUS tap.";
+    }
+    return;
+  }
+  battBadRun = 0;
+  battObserve(n);
+
+  if (!battCells){
+    /* Still agreeing on a count. Show the volts, withhold everything
+       that would be a lie if the count turned out different. */
+    pack.textContent = v.toFixed(2) + " V";
+    pack.className = "v big";
+    badge.textContent = v.toFixed(2) + " V";
+    badge.className = "badge";
+    $("vb_pct").textContent = $("vb_cell").textContent = "—";
+    $("vb_min").textContent = $("vb_sag").textContent = "—";
+    $("vb_bar").style.width = "0%";
+    note.className = "";
+    note.textContent = "identifying pack…";
+    return;
+  }
+
+  if (v > battMax) battMax = v;
+  if (!battMin || v < battMin) battMin = v;
+
+  var vc  = v / battCells;
+  var pct = socPct(vc);
+  var lvl = vc < CELL_CRIT ? "bad" : (vc < CELL_WARN ? "warn" : "ok");
+
+  pack.textContent = v.toFixed(2) + " V";
+  pack.className = "v big" + (lvl === "ok" ? "" : " " + lvl);
+
+  badge.textContent = v.toFixed(2) + " V  " + battCells + "S";
+  badge.className = "badge batt-" + lvl;
+
+  $("vb_bar").style.width = pct.toFixed(0) + "%";
+  $("vb_bar").className = "bar-fill" + (lvl === "ok" ? "" : " " + lvl);
+  $("vb_pct").textContent = pct.toFixed(0) + "%";
+
+  $("vb_cell").textContent = vc.toFixed(3) + " V";
+  $("vb_min").textContent  = battMin.toFixed(2) + " V  ("
+                           + (battMin / battCells).toFixed(3) + "/cell)";
+  $("vb_sag").textContent  = (battMax - v).toFixed(2) + " V  (peak "
+                           + (battMax - battMin).toFixed(2) + " V)";
+
+  if (lvl === "bad"){
+    note.className = "bad";
+    note.textContent = "LAND NOW — " + vc.toFixed(2) + " V/cell.";
+  } else if (lvl === "warn"){
+    note.className = "warn";
+    note.textContent = "land soon — " + vc.toFixed(2) + " V/cell under load.";
+  } else if (battMax - v > 0.3){
+    /* The charge curve maps OPEN-CIRCUIT voltage, so a pack pulling
+       hover current always gauges lower than it really is. Say that
+       rather than let it look like the pack is dying. */
+    note.className = "";
+    note.textContent = "under load — charge est. reads low by roughly the "
+                     + (battMax - v).toFixed(2) + " V of sag.";
+  } else {
+    note.className = "";
+    note.textContent = battCells + "S. Thresholds are per cell under load ("
+                     + CELL_WARN.toFixed(2) + " warn / "
+                     + CELL_CRIT.toFixed(2) + " land). Click to reset min, "
+                     + "sag and the cell count — needed after fitting a "
+                     + "SMALLER pack.";
+  }
+}
+
+/* ---- Ground distance: VL53L0X (TOF200C), CSV field 62 (mm) ---------
+   Two sentinels, both outside anything the sensor can physically
+   measure, so neither can be mistaken for a distance:
+
+     0      the FC has no number at all - the chip was not found at boot
+            (on USB-only power the sensor rail is unpowered, which looks
+            exactly like a missing chip), or the reads have been failing
+            for a second. Never a stale value.
+     65535  the chip is alive and ranging, but the last measurement was
+            not one it will stand behind: nothing within range, target
+            too dark, or direct sunlight swamping the return.
+
+   "No target" is the NORMAL reading in the air. This sensor tops out
+   around 2 m and the hover protocol is above 2 m - it is a near-ground
+   instrument (takeoff, landing, ground effect) and the barometer stays
+   the altitude source. Type TOF in the console for the raw millimetres
+   and the chip's own range status when this card says no target. */
+/* ---- Altitude hold: CSV fields 63-67 (P7 stages 1+2) ---------------
+   alt_est_m is the VERTICAL FILTER's altitude, above the ground datum
+   the ToF set - NOT field 16, which is the barometer's own altitude
+   above an inferred sea level. Showing them on one card without saying
+   so would invite subtracting two numbers that share no zero.
+
+   vert_flags:
+     bit0 VALID    the estimator has an absolute reference. Until this
+                   is set nothing else on this card means anything: with
+                   no reference the filter is dead-reckoning an
+                   accelerometer with a measured 2% scale error, which
+                   invents 1.9 m/s of climb in ten seconds.
+     bit1 ENGAGED  alt-hold is actually driving the throttle
+     bit2 WANTED   the AUTOMATIC POLICY asked for it: alt_hold_auto on,
+                   estimate valid, airborne, throttle up. NOT the switch
+                   - CH6 has engaged nothing and moved
+                   to bit6, when it turned out bit2 had
+                   still been reporting the switch all along.
+     bit3 TOF_OK   the ToF gave a usable range this frame
+     bit4/5        velocity hold engaged / wanted (not shown here)
+     bit6 CH6      switch position, diagnostic only. It gates ARMING and
+                   nothing else.
+     bit7 VCOMP    battery-sag throttle compensation applied this frame
+
+   WANTED without ENGAGED is the case worth showing loudly: every gate
+   passed and the controller still did not take the throttle. Without
+   this the refusal is completely silent - the throttle simply stays
+   manual and nothing anywhere says why. */
+var VERT_VALID = 1, VERT_ENGAGED = 2, VERT_WANTED = 4, VERT_TOF_OK = 8;
+var VERT_CH6 = 64;
+
+function renderAltHold(f, armed){
+  var mode = $("ah_mode"), alt = $("ah_alt"), vz = $("ah_vz");
+  var sp = $("ah_sp"), bias = $("ah_bias"), note = $("ah_note");
+  var ref = $("ah_ref"), refd = $("ah_ref_d");
+
+  /* Field 70 is the author's altitude reference. Absent on firmware older
+     than, so it is read defensively and independently of the
+     63-67 block above - a missing alt_ref must not blank the filter's
+     own readout, and vice versa. */
+  if (f.length >= 71){
+    var zr = parseFloat(f[70]);
+    /* Field 71 is the reference's LIVENESS, appended. Read
+       it the same defensive way as everything else: only an explicit
+       "0" means stale. A MISSING field is not a measurement, so older
+       firmware (length 71, no field 71) is treated as live rather than
+       painted stale - the same rule that stopped an absent field 52
+       from showing four dead sensors. */
+    var refStale = (f.length >= 72) && (f[71].trim() === "0");
+    ref.textContent = isFinite(zr) ? zr.toFixed(2) + " m" : "—";
+    ref.className = refStale ? "v big dim" : "v big";
+    var zf = parseFloat(f[63]);
+    if (refStale){
+      /* Coasting on a barometer that has stopped answering. The delta
+         against the filter is meaningless here, and showing it in red
+         would blame the filter for a number that is not being
+         measured. */
+      refd.textContent = "stale — baro not answering";
+      refd.className = "v dim";
+    } else if (isFinite(zr) && isFinite(zf)){
+      var d = zf - zr;
+      refd.textContent = (d >= 0 ? "+" : "") + d.toFixed(2) + " m";
+      /* A large gap means the two disagree about where the ground is,
+         and on the flights the FILTER was the one that was
+         wrong - it reached -6.00 m while the ToF read 0.18 m. */
+      refd.className = Math.abs(d) > 0.5 ? "v bad" : "v dim";
+    } else {
+      refd.textContent = "—";
+      refd.className = "v dim";
+    }
+  } else {
+    ref.textContent = refd.textContent = "— (old FC firmware)";
+    refd.className = "v dim";
+  }
+
+  /* Fields 63-67 are missing on FC firmware older than P7 stage 1. */
+  if (f.length < 68){
+    mode.textContent = "—";
+    mode.className = "v big dim";
+    alt.textContent = vz.textContent = sp.textContent = bias.textContent = "—";
+    note.className = "";
+    note.textContent = "FC firmware predates alt-hold — no fields 63-67.";
+    return;
+  }
+
+  var z = parseFloat(f[63]), w = parseFloat(f[64]);
+  var b = parseFloat(f[65]), zs = parseFloat(f[66]);
+  var fl = parseInt(f[67], 10) || 0;
+
+  alt.textContent  = isFinite(z) ? z.toFixed(2) + " m" : "—";
+  vz.textContent   = isFinite(w) ? (w >= 0 ? "+" : "") + w.toFixed(2) + " m/s" : "—";
+  bias.textContent = isFinite(b) ? b.toFixed(3) + " m/s²" : "—";
+
+  if (fl & VERT_ENGAGED){
+    mode.textContent = "HOLDING";
+    mode.className = "v big";
+    sp.textContent = isFinite(zs) ? zs.toFixed(2) + " m" : "—";
+    note.className = "ok";
+    note.textContent = (fl & VERT_TOF_OK)
+      ? "holding on the ToF — centimetre reference, this is the good case."
+      : "holding on the BAROMETER — expect ~0.2 m of wander, that is the "
+      + "sensor's noise floor and not a tuning problem.";
+    return;
+  }
+
+  mode.textContent = "manual";
+  mode.className = "v big dim";
+  sp.textContent = "—";
+
+  /* Disarmed, the policy asks for nothing by construction, so WANTED is
+     always 0 here and reading it as a refusal would turn a perfectly
+     good pre-flight check into a fault. What IS worth showing on the
+     bench is whether the switch registers at all, and whether there is
+     a ground reference to arm against. */
+  if (!armed){
+    note.className = "";
+    if (fl & VERT_CH6){
+      note.textContent = (fl & VERT_VALID)
+        ? "CH6 is UP and the estimator is ready. Note CH6 no longer "
+        + "engages the hold — it only gates arming. Engagement is "
+        + "automatic when alt_hold_auto is 1."
+        : "CH6 is UP but there is NO ground reference — arming is "
+        + "blocked while it stays that way.";
+    } else {
+      note.textContent = (fl & VERT_VALID)
+        ? "estimator ready. The hold engages itself once airborne, "
+        + "above ~0.3 m with the throttle near hover, if alt_hold_auto "
+        + "is 1."
+        : "no ground reference — the ToF needs a target within 2 m. The "
+        + "barometer cannot supply one (it constrains altitude+bias, "
+        + "not altitude), so this will not clear on its own.";
+    }
+    return;
+  }
+
+  if (fl & VERT_WANTED){
+    /* Armed, every gate passed, and it still is not holding. That is a
+       genuine refusal and the only place it is ever visible. */
+    note.className = "warn";
+    note.textContent = !(fl & VERT_VALID)
+      ? "REFUSED — no ground reference. Get the ToF within 2 m of a "
+      + "surface. Waiting will NOT help: the barometer "
+      + "does not establish a reference, only the ToF does."
+      : "REFUSED — every gate passed but the controller did not take "
+      + "the throttle. Check the barometer (BARO chip above).";
+    return;
+  }
+
+  note.className = "";
+  note.textContent = (fl & VERT_VALID)
+    ? "estimator ready — the policy is not asking. Either alt_hold_auto "
+    + "is 0, or the aircraft is not airborne yet, or the throttle is "
+    + "below the floor."
+    : "no ground reference — the ToF needs a target within 2 m. The "
+    + "barometer cannot supply one (it constrains altitude+bias, not "
+    + "altitude), so this will not clear on its own.";
+}
+
+function renderTof(mm){
+  var d = $("tof"), m = $("tof_m"), note = $("tof_note");
+
+  if (!(mm > 0)){
+    d.textContent = "—";
+    d.className = "v big";
+    m.textContent = "—";
+    note.className = "";
+    note.textContent = "no sensor — not detected at boot, or running on "
+                     + "USB (the sensor rail is battery-fed). Type TOF.";
+    return;
+  }
+  if (mm === 65535){
+    d.textContent = "no target";
+    d.className = "v big dim";
+    m.textContent = "—";
+    note.className = "";
+    note.textContent = "nothing in range — normal above ~2 m, and outdoors "
+                     + "in sunlight. Baro still owns altitude.";
+    return;
+  }
+
+  d.textContent = mm + " mm";
+  d.className = "v big";
+  m.textContent = (mm / 1000).toFixed(2) + " m";
+  note.className = mm < 50 ? "warn" : "";
+  note.textContent = mm < 50
+    ? "below the sensor's 3 cm minimum — treat as touching the ground."
+    : "VL53L0X, 3–200 cm. Reads short in bright sun.";
+}
+
+function render(line){
+  var f = line.split(",");
+  if (f.length < 39) return;              /* not a telemetry line */
+  var ext = f.length >= 55;               /* extended fields present */
+
+  var armed = f[0] === "1";
+  var ab = $("armed");
+  ab.className = "badge " + (armed ? "armed" : "disarmed");
+  ab.textContent = armed ? "⚠ ARMED" : "DISARMED";
+
+  $("roll").textContent  = num(f,1,1);
+  $("pitch").textContent = num(f,2,1);
+  $("yaw").textContent   = num(f,3,1);
+  $("des_rp").textContent = num(f,4,1) + " / " + num(f,5,1);
+  $("des_y").textContent  = num(f,6,0) + " dps";
+
+  $("temp").textContent  = num(f,13,1) + " °C";
+  $("press").textContent = (parseFloat(f[15]) / 100).toFixed(1) + " hPa";
+  $("alt").textContent   = num(f,16,1) + " m";
+
+  $("gps").textContent = f[19] + " / " + (FIX[f[53]] || (ext ? f[53] : "—"));
+  $("latlon").textContent = num(f,17,5) + ", " + num(f,18,5);
+
+  for (var m = 1; m <= 4; m++){
+    var us = parseInt(f[20 + m], 10) || 0;
+    $("m" + m).textContent = us;
+    setBar("m" + m + "b", us);
+  }
+  $("dt").textContent = num(f,38,4) + " s";
+
+  if (ext){
+    $("gyro").textContent  = num(f,39,1) + " / " + num(f,40,1) + " / " + num(f,41,1);
+    $("accel").textContent = num(f,42,2) + " / " + num(f,43,2) + " / " + num(f,44,2);
+    var thr = parseInt(f[45], 10) || 0;
+    $("thr").textContent = thr;
+    setBar("thr_bar", thr);
+
+    if (f.length >= 61){
+      $("rc_rpy").textContent = f[55] + " / " + f[56] + " / " + f[57];
+      var armCh = parseInt(f[58], 10) || 0;
+      var ae = $("rc_arm");
+      ae.textContent = armCh + (armCh > 1600 ? "  ARM" : "  safe");
+      ae.className = "v" + (armCh > 1600 ? " warn" : "");
+
+      var linkOk = f[60] === "1";
+      var le = $("rc_link");
+      le.textContent = linkOk ? "frames arriving" : "TIMED OUT";
+      le.className = "v" + (linkOk ? "" : " bad");
+
+      /* The FS-iA6B keeps sending the LAST stick values when the TX dies,
+         so "frames arriving" does NOT mean the transmitter is alive.
+         Identical gimbal frames are how that shows up.
+
+         The prose banner that used to sit under this counter was removed
+ at the author's request. The MEASUREMENT stays: the count
+         is still here and still turns orange past 50 frames and red past
+         300, which is the part that carries the information. */
+      var frozen = parseInt(f[59], 10) || 0;
+      var fe = $("rc_frozen");
+      fe.textContent = frozen;
+      fe.className = "v" + (frozen > 300 ? " bad" : (frozen > 50 ? " warn" : ""));
+    }
+
+    $("a_rate").textContent = num(f,46,3) + " / " + num(f,47,4) + " / " + num(f,48,4);
+    $("a_yaw").textContent  = num(f,49,3) + " / " + num(f,50,4) + " / " + num(f,51,4);
+    if (!pidFilled){
+      $("i_kpr").value = num(f,46,3); $("i_kir").value = num(f,47,4);
+      $("i_kdr").value = num(f,48,4); $("i_kpy").value = num(f,49,3);
+      $("i_kiy").value = num(f,50,4); $("i_kdy").value = num(f,51,4);
+      pidFilled = true;
+    }
+
+    /* Field 52 is the sensor_health bitmask. It used to be read as
+       `parseInt(f[52], 10) || 0`, which maps an EMPTY or NON-NUMERIC field
+       to 0 -- and 0 paints all four chips red at once. That turns "I could
+       not read it" into "every sensor is dead", which is the exact
+       inversion the project's warns about, and it points the pilot at the
+       sensors when the real fault is upstream.
+
+       The way it actually happens: the dashboard is embedded in the C6
+       binary, so a C6 that was not reflashed after an S3 telemetry-format
+       change parses the NEW line with the OLD field indices. Index 52 then
+       lands on some other column, and a stale-C6 mistake gets reported as
+       four dead chips.
+
+       parseInt is also too permissive on its own -- it reads "12abc" as 12
+       -- so require the whole field to be digits before believing it. A
+       genuine 0 still renders as four red chips; that is a real reading and
+       it must not be hidden. Anything unreadable holds the last known
+       values, dimmed, with the reason spelled out. */
+    var hTxt = f[52];
+    if (/^\s*\d+\s*$/.test(hTxt)){
+      var h = parseInt(hTxt, 10);
+      setHealthStale("");
+      chip("h_imu",  h & 1, "IMU");
+      chip("h_baro", h & 2, "BARO");
+      chip("h_mag",  h & 4, "MAG");
+      chip("h_9dof", h & 8, "9-DOF");
+      /* The MS5611 control barometer, bit 4. It is NOT a flight sensor and
+         it is normally not fitted at all, so a red chip here would be a
+         lie four days out of five. Distinguish the three real states:
+         never seen since load = "not fitted" and neutral; seen and
+         currently reading = ok; seen before but not now = genuinely bad,
+         which is the only case the experiment cares about. */
+      if (h & 16) baro2Seen = true;
+      if (!baro2Seen) {
+        var e2 = $("h_baro2");
+        e2.className = "chip";
+        e2.textContent = "\u2014 BARO2 (not fitted)";
+      } else {
+        chip("h_baro2", h & 16, "BARO2");
+      }
+    } else {
+      setHealthStale("held — health field unreadable (" +
+                     (hTxt === undefined || hTxt === ""
+                        ? "empty" : "\"" + String(hTxt).slice(0, 12) + "\"") +
+                     "). Most likely the C6 needs reflashing after an S3 " +
+                     "telemetry change — not a sensor fault.");
+    }
+
+    /* Field 61 is missing on FC firmware older than; treat
+       that as "no reading" rather than showing a made-up one. */
+    renderBatt(f.length >= 62 ? (parseInt(f[61], 10) || 0) : 0);
+
+    /* Field 62 is missing on FC firmware older than. */
+    renderTof(f.length >= 63 ? (parseInt(f[62], 10) || 0) : 0);
+    /* Deliberately OUTSIDE the field-52 block above: the ToF chip's data
+       source is field 62, so an unreadable bitmask says nothing about it
+       and must not dim or blank it. */
+    renderTofChip(f[62], f.length >= 63);
+
+    renderAltHold(f, armed);
+
+    var blocked = parseInt(f[54], 10) || 0;
+    var msg = "";
+    if (!armed && blocked){
+      var names = [], seen = 0;
+      for (var i = 0; i < BLOCK_BITS.length; i++)
+        if (blocked & BLOCK_BITS[i][0]){
+          names.push(BLOCK_BITS[i][1]);
+          seen |= BLOCK_BITS[i][0];
+        }
+      /* Anything this page does not recognise is still REPORTED. A bit
+         with no name means the S3 is newer than this C6 binary, which is
+         a stale-reflash mistake and not a firmware fault - but silence
+         cannot say that, and an empty list is read as a bug in the
+         aircraft. Show the raw mask so it can at least be looked up. */
+      var unknown = blocked & ~seen;
+      if (unknown)
+        names.push("unknown blocker 0x" + unknown.toString(16).toUpperCase()
+                   + " (C6 page older than the firmware?)");
+      msg = "arming blocked: " + names.join(", ");
+    }
+    $("blocked").textContent = msg;
+  }
+}
+
+function poll(){
+  fetch("/telem", {cache:"no-store"}).then(function(r){ return r.text(); })
+  .then(function(t){
+    t = t.trim();
+    if (t){ lastOk = Date.now(); render(t); }
+  })
+  .catch(function(){});
+}
+
+function tick(){
+  var age = Date.now() - lastOk;
+  var lk = $("link");
+  if (lastOk && age < 2000){
+    lk.className = "badge link-ok";  lk.innerHTML = "LINK ✓";
+    $("age").textContent = (age/1000).toFixed(1) + " s";
+  } else {
+    lk.className = "badge link-down"; lk.innerHTML = "LINK ✗";
+    $("age").textContent = lastOk ? ((age/1000).toFixed(0) + " s stale") : "no data";
+    /* Link gone for 5 s means the FC lost power, which on this aircraft
+       means the pack came out - so the min/sag trackers belong to a
+       battery that is no longer connected. Drop them instead of
+       carrying one pack's numbers onto the next. */
+    if (age > 5000) battReset();
+  }
+}
+
+$("vb_note").onclick = battReset;
+
+$("send").onclick = function(){
+  var vals = [$("i_kpr").value, $("i_kir").value, $("i_kdr").value,
+              $("i_kpy").value, $("i_kiy").value, $("i_kdy").value];
+  for (var i = 0; i < 6; i++){
+    var v = parseFloat(vals[i]);
+    if (!isFinite(v) || v < 0 || v > 100){
+      $("pidmsg").className = "err";
+      $("pidmsg").textContent = "values must be numbers in 0..100";
+      return;
+    }
+    vals[i] = v;
+  }
+  $("pidmsg").className = ""; $("pidmsg").textContent = "sending…";
+  fetch("/pid", {method:"POST", body: vals.join(",")})
+  .then(function(r){ return r.text().then(function(t){ return {ok:r.ok, t:t}; }); })
+  .then(function(res){
+    $("pidmsg").className = res.ok ? "ok" : "err";
+    $("pidmsg").textContent = res.ok
+      ? "sent — watch the FC-active column update"
+      : "rejected: " + res.t;
+  })
+  .catch(function(){
+    $("pidmsg").className = "err";
+    $("pidmsg").textContent = "send failed (no connection)";
+  });
+};
+
+$("reload").onclick = function(){ pidFilled = false; };
+
+/* PID card open/closed. Closed by default so the FC console sits right
+   under the sensor cards; the choice is remembered in this browser only.
+   Storage can throw (private window, blocked site data) - the page must
+   work without it, so every access is guarded. */
+function setPidOpen(open){
+  $("pidcard").className = "card" + (open ? "" : " collapsed");
+  $("pidarrow").textContent = open ? "▾" : "▸";
+  $("pidhint").textContent = open ? "" : "(click to open)";
+  try { localStorage.setItem("dash.pidOpen", open ? "1" : "0"); } catch (e) {}
+}
+var pidOpen = false;
+try { pidOpen = localStorage.getItem("dash.pidOpen") === "1"; } catch (e) {}
+setPidOpen(pidOpen);
+$("pidhead").onclick = function(){
+  setPidOpen($("pidcard").className.indexOf("collapsed") >= 0);
+};
+
+/* ---- FC console ----
+   Commands go over the same UART the telemetry comes back on, so the
+   reply lands here instead of scrolling past in a USB console that is
+   printing 50 CSV lines a second. */
+var consoleSeq = -1;
+
+function sendCmd(text){
+  if (!text) return;
+  $("console").textContent += "\n> " + text;
+  $("console").scrollTop = $("console").scrollHeight;
+  fetch("/cmd", {method:"POST", body:text})
+  .then(function(r){ if (!r.ok) return r.text().then(function(t){ throw new Error(t); }); })
+  .catch(function(e){
+    $("console").textContent += "\n  [send failed: " + e.message + "]";
+  });
+}
+
+function pollConsole(){
+  fetch("/console", {cache:"no-store"}).then(function(r){ return r.text(); })
+  .then(function(t){
+    var nl = t.indexOf("\n");
+    if (nl < 0) return;
+    var seq = parseInt(t.slice(0, nl), 10);
+    if (seq === consoleSeq) return;          /* nothing new */
+    consoleSeq = seq;
+    var body = t.slice(nl + 1);
+    $("console").textContent = body || "(no output yet — press STATS)";
+    $("console").scrollTop = $("console").scrollHeight;
+  })
+  .catch(function(){});
+}
+
+var cbtns = document.getElementsByClassName("cmd");
+for (var i = 0; i < cbtns.length; i++){
+  cbtns[i].onclick = function(){ sendCmd(this.getAttribute("data-cmd")); };
+}
+$("cmdsend").onclick = function(){
+  var v = $("cmdline").value.trim();
+  $("cmdline").value = "";
+  sendCmd(v);
+};
+$("cmdline").addEventListener("keydown", function(e){
+  if (e.key === "Enter") $("cmdsend").onclick();
+});
+$("cmdclear").onclick = function(){
+  $("console").textContent = "(cleared — FC buffer still holds the last lines)";
+};
+
+setInterval(poll, 250);
+setInterval(tick, 250);
+setInterval(pollConsole, 700);
+poll();
+pollConsole();
+</script>
+</body>
+</html>

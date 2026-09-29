@@ -1,0 +1,39 @@
+# Project-required overrides applied on top of ESP-IDF defaults.
+# Regenerate sdkconfig from these with: idf.py fullclean && idf.py build
+# (or delete sdkconfig and rebuild)
+
+# 1 kHz tick: the flight loop runs at 250 Hz via vTaskDelayUntil (fusion
+# is paced by the IMU DRDY interrupt at ~416 Hz). The IDF default of 100 Hz
+# makes pdMS_TO_TICKS(4) = 0 ticks -> assert.
+CONFIG_FREERTOS_HZ=1000
+
+# Console on USB-Serial-JTAG, NOT UART0.
+# UART0 is used by the GPS (tbsM10); leaving the console on UART0 would
+# retarget log output onto the GPS pins and corrupt both.
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+
+# Flight math at -O2. The -Og default left Madgwick/PID spilling to stack;
+# assertions stay enabled (separate option, still on).
+CONFIG_COMPILER_OPTIMIZATION_PERF=y
+
+# 240 MHz: -33% execution time everywhere for ~35 mA extra - noise next
+# to four motors.
+CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_240=y
+
+# P1 measurement kit: per-task CPU% + task list for the one-shot STATS
+# serial command (vTaskGetRunTimeStats / vTaskList in debug_stream).
+CONFIG_FREERTOS_USE_TRACE_FACILITY=y
+CONFIG_FREERTOS_USE_STATS_FORMATTING_FUNCTIONS=y
+CONFIG_FREERTOS_GENERATE_RUN_TIME_STATS=y
+
+# The module has 16 MB of flash (esptool: Device 4018, 16MB). The stale
+# 2 MB setting made the bootloader clamp to 2 MB and log
+# "Detected size(16384k) larger than ... image header(2048k)", leaving
+# ~14 MB unreachable.
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+
+# Custom table: bigger (2 MB) app slot.
+# See partitions.csv (nvs deliberately left at its original offset -
+# it holds the mag calibration).
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"

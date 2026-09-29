@@ -1,0 +1,37 @@
+# ESP32-C6 telemetry bridge + dashboard (WiFi-RC joystick removed).
+CONFIG_IDF_TARGET="esp32c6"
+
+# 1 kHz tick: the bridge uses 20 ms UART/WiFi timeouts that a 100 Hz tick
+# would round badly. (Originally for the 7 ms iBUS frame of the WiFi-RC
+# joystick, which was removed.)
+CONFIG_FREERTOS_HZ=1000
+
+# The XIAO C6 has 4 MB of flash. The stale 2 MB setting made the
+# bootloader clamp and log
+#   W spi_flash: Detected size(4096k) larger than the size in the binary
+#   image header(2048k). Using the size in the binary image header.
+# leaving half the chip unreachable. Same class of bug as the S3's
+# 16 MB-capped-at-2 MB (fixed there in c348ea9).
+CONFIG_ESPTOOLPY_FLASHSIZE_4MB=y
+
+# Custom table: the default single-app layout caps the app at 1 MB, and
+# adding mDNS put the binary at 94% of that. See partitions.csv.
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+
+# Socket pool. The default 10 is not enough to run the dashboard and the
+# :5555 capture bridge at the same time: esp_http_server asks for 7 client
+# sockets plus a listener and a control socket, mDNS takes more, and the
+# bridge needs its own listener plus one per client. Measured -
+# with the dashboard open, connecting to :5555 got a completed handshake
+# and then an immediate reset with zero bytes, because accept() was
+# failing on an exhausted pool. httpd is also capped at 4 sockets in
+# main.c; the cap alone would do today, this is the headroom.
+CONFIG_LWIP_MAX_SOCKETS=16
+
+# Console to USB-JTAG, NOT UART0.
+# UART0's default TX on the C6 is GPIO16, which is the telemetry link's TX
+# to the FC (TELEM_TX_GPIO in main.c). A console on UART0 would push every
+# log line into the FC's command input. Moving the console to USB-JTAG
+# frees UART0 for the 921600-baud telemetry link.
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y

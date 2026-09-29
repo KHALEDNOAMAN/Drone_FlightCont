@@ -1,0 +1,12 @@
+# One-shot ESC calibration firmware for the S3 flight controller board.
+CONFIG_IDF_TARGET="esp32s3"
+
+# Same console as the flight firmware - logs on the native USB port.
+CONFIG_ESP_CONSOLE_USB_SERIAL_JTAG=y
+
+# IDENTICAL flash size + partition table to the flight firmware, so
+# flashing this and flashing back only ever rewrites the app slot.
+# NVS at 0x9000 holds the magnetometer calibration - never touched.
+CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
+CONFIG_PARTITION_TABLE_CUSTOM=y
+CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"

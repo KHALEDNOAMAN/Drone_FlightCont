@@ -1,0 +1,13 @@
+# Normalize to LF in the repository. Without this every commit from Windows
+# prints a "LF will be replaced by CRLF" warning per file, and the 24 files
+# that were committed with CRLF show as whole-file diffs to anything on Linux
+# (including the build CI).
+* text=auto eol=lf
+
+# Binary - never touch these.
+*.png    binary
+*.gz     binary
+*.bin    binary
+*.elf    binary
+*.bb     binary
+*.patch  -text

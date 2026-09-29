@@ -1,0 +1,465 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Drone live viewer</title>
+<style>
+  :root {
+    --bg: #0e1116; --panel: #161b22; --line: #263040; --ink: #d6deeb;
+    --dim: #7d8da5; --ok: #3fb950; --warn: #d29922; --bad: #f85149;
+    --accent: #58a6ff;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--ink);
+    font: 13px/1.45 ui-monospace, SFMono-Regular, Consolas, monospace;
+  }
+  header {
+    display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+    padding: 8px 12px; background: var(--panel);
+    border-bottom: 1px solid var(--line); position: sticky; top: 0; z-index: 5;
+  }
+  .grid {
+    display: grid; grid-template-columns: 1fr 1fr; gap: 10px; padding: 10px;
+  }
+  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+  .panel {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 8px; padding: 10px;
+  }
+  .panel h2 {
+    font-size: 12px; font-weight: 600; letter-spacing: .08em;
+    text-transform: uppercase; color: var(--dim); margin: 0 0 8px;
+  }
+  canvas { width: 100%; display: block; border-radius: 6px; background: #0b0e13; }
+  .chip {
+    display: inline-block; padding: 2px 7px; border-radius: 999px;
+    border: 1px solid var(--line); font-size: 11px; color: var(--dim);
+  }
+  .chip.on { color: #0b0e13; background: var(--ok); border-color: var(--ok); }
+  .chip.off { color: #0b0e13; background: var(--bad); border-color: var(--bad); }
+  .chip.warn { color: #0b0e13; background: var(--warn); border-color: var(--warn); }
+  .kv { display: grid; grid-template-columns: auto 1fr; gap: 2px 10px; }
+  .kv div:nth-child(odd) { color: var(--dim); }
+  .num { font-variant-numeric: tabular-nums; }
+  .big { font-size: 22px; font-variant-numeric: tabular-nums; }
+  .why { color: var(--warn); min-height: 1.4em; }
+  label { color: var(--dim); display: inline-flex; gap: 5px; align-items: center; }
+  input[type=number], input[type=text] {
+    background: #0b0e13; color: var(--ink); border: 1px solid var(--line);
+    border-radius: 5px; padding: 3px 6px; font: inherit; width: 8em;
+  }
+  input[type=text].wide { width: 100%; }
+  button {
+    background: #21262d; color: var(--ink); border: 1px solid var(--line);
+    border-radius: 5px; padding: 4px 10px; font: inherit; cursor: pointer;
+  }
+  button:hover { border-color: var(--accent); }
+  .row { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+  .console {
+    height: 150px; overflow: auto; background: #0b0e13; border-radius: 6px;
+    padding: 6px 8px; font-size: 12px; white-space: pre-wrap;
+  }
+  .console .t { color: var(--dim); }
+  .stale { color: var(--bad); font-weight: 700; }
+</style>
+</head>
+<body>
+
+<header>
+  <strong>DRONE VIEWER</strong>
+  <span id="link" class="chip">connecting…</span>
+  <span id="armed" class="chip">disarmed</span>
+  <span id="health"></span>
+  <span id="loop" class="chip"></span>
+  <span style="flex:1"></span>
+  <span class="chip">pack must be IN — on USB alone every sensor reads 0</span>
+</header>
+
+<div class="grid">
+
+  <section class="panel">
+    <h2>Attitude</h2>
+    <canvas id="att" height="360"></canvas>
+    <div class="row" style="margin-top:8px">
+      <div><span class="dim">roll</span> <span id="roll" class="big">–</span>°</div>
+      <div><span class="dim">pitch</span> <span id="pitch" class="big">–</span>°</div>
+      <div><span class="dim">yaw</span> <span id="yaw" class="big">–</span>°</div>
+    </div>
+    <div class="row" style="margin-top:6px">
+      <div class="kv" style="flex:1">
+        <div>gyro °/s</div><div id="gyro" class="num">–</div>
+        <div>accel m/s²</div><div id="acc" class="num">–</div>
+        <div>motors µs</div><div id="motors" class="num">–</div>
+      </div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Ground track — dead reckoning from optical flow</h2>
+    <canvas id="map" height="360"></canvas>
+    <div class="row" style="margin-top:8px">
+      <div><span class="dim">x</span> <span id="posx" class="big">–</span> m</div>
+      <div><span class="dim">y</span> <span id="posy" class="big">–</span> m</div>
+      <div><span class="dim">speed</span> <span id="speed" class="num">–</span> m/s</div>
+      <div><span class="dim">path</span> <span id="dist" class="num">–</span> m</div>
+      <div><span class="dim">height</span> <span id="height" class="num">–</span></div>
+    </div>
+    <div id="why" class="why"></div>
+  </section>
+
+  <section class="panel">
+    <h2>Optical flow</h2>
+    <div class="kv">
+      <div>state</div><div id="flowstate">–</div>
+      <div>squal</div><div id="squal" class="num">–</div>
+      <div>shutter</div><div id="shutter" class="num">–</div>
+      <div>windows</div><div id="fwin" class="num">–</div>
+      <div>rate rad/s</div><div id="frate" class="num">–</div>
+      <div>flags</div><div id="fflags">–</div>
+    </div>
+    <h2 style="margin-top:12px">Height</h2>
+    <div class="kv">
+      <div>ToF</div><div id="tof" class="num">–</div>
+      <div>baro alt</div><div id="baro" class="num">–</div>
+      <div>GPS</div><div id="gps" class="num">–</div>
+    </div>
+  </section>
+
+  <section class="panel">
+    <h2>Setup — all of this is laptop-side, nothing is sent to the FC</h2>
+    <div class="row">
+      <label>scale rad/count
+        <input id="scale" type="number" step="0.00001" min="0.00001">
+      </label>
+      <label>manual height m
+        <input id="mheight" type="number" step="0.01" min="0">
+      </label>
+      <label><input id="use_tof" type="checkbox"> use ToF height</label>
+    </div>
+    <div class="row" style="margin-top:6px">
+      <label><input id="gyro_comp" type="checkbox"> gyro compensation</label>
+      <label><input id="gyro_sign" type="checkbox"> flip gyro sign</label>
+      <label><input id="swap_xy" type="checkbox"> swap X/Y</label>
+      <label><input id="invert_x" type="checkbox"> invert X</label>
+      <label><input id="invert_y" type="checkbox"> invert Y</label>
+    </div>
+    <div class="row" style="margin-top:6px">
+      <label><input id="rotate_by_yaw" type="checkbox"> rotate by yaw</label>
+      <label><input id="invert_pitch" type="checkbox"> invert pitch (display)</label>
+      <button id="zeroyaw">zero heading</button>
+      <button id="reset">reset track</button>
+    </div>
+    <p style="color:var(--dim); margin:10px 0 0">
+      Calibration: hold a measured height over texture, move a measured
+      distance, then change <b>scale</b> until the track agrees with the tape.
+      Below 80 mm or over a blank surface the sensor has nothing to track and
+      the viewer will say so instead of drawing a line.
+    </p>
+    <h2 style="margin-top:12px">Console</h2>
+    <div id="console" class="console"></div>
+    <div class="row" style="margin-top:6px">
+      <input id="cmd" class="wide" type="text" placeholder="FLOW, TOF, STATS, GET …  (Enter to send)">
+    </div>
+  </section>
+
+</div>
+
+<script>
+const $ = id => document.getElementById(id);
+const CFG_KEYS = ["use_tof","gyro_comp","swap_xy","invert_x","invert_y",
+                  "rotate_by_yaw","invert_pitch"];
+let track = [], trackNext = 0, trackGen = 0, cfg = {}, last = null;
+
+/* ---------- polling ---------- */
+async function poll() {
+  try {
+    const r = await fetch(`/state?since=${trackNext}`);
+    const s = await r.json();
+    if (s.track.gen !== trackGen) { track = []; trackGen = s.track.gen; }
+    if (s.track.pts.length) track = track.concat(s.track.pts);
+    trackNext = s.track.next;
+    last = s;
+    render(s);
+  } catch (e) { /* server restarting: just try again */ }
+}
+setInterval(poll, 33);
+
+function post(path, body) {
+  return fetch(path, {method: "POST", headers: {"Content-Type": "application/json"},
+                      body: JSON.stringify(body)});
+}
+
+/* ---------- controls ---------- */
+function bindCfg() {
+  for (const k of CFG_KEYS) {
+    $(k).addEventListener("change", () => post("/set", {[k]: $(k).checked}));
+  }
+  $("gyro_sign").addEventListener("change",
+    () => post("/set", {gyro_sign: $("gyro_sign").checked ? -1 : 1}));
+  $("scale").addEventListener("change",
+    () => post("/set", {scale: parseFloat($("scale").value)}));
+  $("mheight").addEventListener("change",
+    () => post("/set", {manual_height_m: parseFloat($("mheight").value)}));
+  $("reset").addEventListener("click", () => post("/set", {reset_track: true}));
+  $("zeroyaw").addEventListener("click", () => {
+    const yaw = last && last.d && last.d.rpy ? last.d.rpy[2] : 0;
+    post("/set", {yaw_offset_deg: -yaw});
+  });
+  $("cmd").addEventListener("keydown", e => {
+    if (e.key === "Enter" && e.target.value.trim()) {
+      post("/cmd", {line: e.target.value.trim()});
+      e.target.value = "";
+    }
+  });
+}
+bindCfg();
+
+let cfgLoaded = false;
+function loadCfg(c) {
+  cfg = c;
+  if (cfgLoaded) return;          // do not fight the user's typing
+  cfgLoaded = true;
+  for (const k of CFG_KEYS) $(k).checked = !!c[k];
+  $("gyro_sign").checked = c.gyro_sign < 0;
+  $("scale").value = c.scale;
+  $("mheight").value = c.manual_height_m;
+}
+
+/* ---------- helpers ---------- */
+const f = (v, n = 2) => (v === null || v === undefined || Number.isNaN(v))
+  ? "–" : Number(v).toFixed(n);
+
+function chip(el, text, cls) {
+  el.textContent = text;
+  el.className = "chip" + (cls ? " " + cls : "");
+}
+
+/* ---------- render ---------- */
+function render(s) {
+  loadCfg(s.cfg);
+  const d = s.d || {}, nav = s.nav || {};
+  const stale = s.link.stale;
+
+  chip($("link"), s.link.connected
+      ? `${s.link.port}  ${f(s.link.rate,0)} lines/s  ${stale ? "STALE" : (s.link.age_ms + " ms")}`
+      : "no serial port", s.link.connected ? (stale ? "warn" : "on") : "off");
+  chip($("armed"), d.armed ? "ARMED" : "disarmed", d.armed ? "warn" : "");
+
+  // health chips, including the ones that are MISSING - a sensor that is
+  // not listed is not the same as one that is fine.
+  const hs = [];
+  for (const n of (d.health_names || [])) hs.push(`<span class="chip on">${n}</span>`);
+  for (const n of (d.health_missing || [])) hs.push(`<span class="chip off">${n}</span>`);
+  $("health").innerHTML = hs.join(" ");
+  chip($("loop"), s.loop && s.loop.loop_max_us
+      ? `loop max ${s.loop.loop_max_us} µs · heap ${(s.loop.heap/1024).toFixed(0)} KB` : "");
+
+  if (d.rpy) {
+    $("roll").textContent  = f(d.rpy[0], 1);
+    $("pitch").textContent = f(cfg.invert_pitch ? -d.rpy[1] : d.rpy[1], 1);
+    $("yaw").textContent   = f(d.rpy[2], 1);
+    $("gyro").textContent  = d.gyro.map(v => f(v, 1)).join("  ");
+    $("acc").textContent   = d.acc.map(v => f(v, 2)).join("  ");
+    $("motors").textContent = d.motors.join("  ");
+  }
+
+  $("posx").textContent = f(nav.x, 3);
+  $("posy").textContent = f(nav.y, 3);
+  $("speed").textContent = f(Math.hypot(nav.vx || 0, nav.vy || 0), 2);
+  $("dist").textContent = f(nav.dist, 2);
+  $("height").textContent = nav.height_m
+      ? `${f(nav.height_m, 3)} m (${nav.height_src})` : "none";
+  $("why").textContent = nav.integrating ? "" : (nav.why || "");
+
+  const fl = d.flow;
+  if (fl) {
+    $("flowstate").innerHTML = fl.seq > 0
+        ? `<span class="chip on">running</span> seq ${fl.seq}`
+        : `<span class="chip off">no bursts</span> — sensor not answering`;
+    $("squal").textContent = fl.squal;
+    $("shutter").textContent = fl.shutter;
+    $("fwin").textContent = `${fl.valid} valid / ${fl.lost} lost`;
+    $("frate").textContent = `${f(nav.rate_x, 3)}  ${f(nav.rate_y, 3)}`;
+    $("fflags").innerHTML = (fl.flag_names || []).map(n =>
+        `<span class="chip ${n === "VALID" || n === "MOTION" ? "on" : "warn"}">${n}</span>`
+      ).join(" ") || "–";
+  } else {
+    $("flowstate").innerHTML = `<span class="chip off">firmware has no flow fields</span>`;
+  }
+
+  const tof = d.tof_mm;
+  $("tof").textContent = (tof === null || tof === undefined) ? "–"
+      : tof === 0 ? "absent / failing"
+      : tof === 65535 ? "no target (over ~2 m)"
+      : `${tof} mm`;
+  $("baro").textContent = d.alt_baro === undefined ? "–" : `${f(d.alt_baro, 2)} m`;
+  $("gps").textContent = d.sats === undefined ? "–"
+      : `${d.sats} sats, fix ${d.fix}`;
+
+  const c = $("console");
+  const atBottom = c.scrollTop + c.clientHeight >= c.scrollHeight - 20;
+  c.innerHTML = (s.console || []).map(l =>
+      `<span class="t">${l.t}</span>  ${escapeHtml(l.line)}`).join("\n");
+  if (atBottom) c.scrollTop = c.scrollHeight;
+
+  drawAttitude(d, stale);
+  drawMap(nav, d, stale);
+}
+
+function escapeHtml(t) {
+  return t.replace(/[&<>]/g, ch => ({"&":"&amp;","<":"&lt;",">":"&gt;"}[ch]));
+}
+
+/* ---------- attitude drawing ----------
+ * Body frame: x forward, y left, z up (lsm6dsox.h IMU_REMAP). Rotation is
+ * ZYX from the FC's own roll/pitch/yaw, drawn under a fixed camera. If the
+ * model tilts the wrong way when you tilt the aircraft, that is the sign
+ * convention, not the maths - use the "invert pitch" toggle and tell the
+ * firmware side about it. */
+function fitCanvas(cv) {
+  const w = cv.clientWidth, h = cv.height;
+  if (cv.width !== w) cv.width = w;
+  return [cv.getContext("2d"), w, h];
+}
+
+function rot(r, p, y) {
+  const [cr, sr] = [Math.cos(r), Math.sin(r)];
+  const [cp, sp] = [Math.cos(p), Math.sin(p)];
+  const [cy, sy] = [Math.cos(y), Math.sin(y)];
+  return [
+    [cy*cp, cy*sp*sr - sy*cr, cy*sp*cr + sy*sr],
+    [sy*cp, sy*sp*sr + cy*cr, sy*sp*cr - cy*sr],
+    [-sp,   cp*sr,            cp*cr],
+  ];
+}
+const apply = (m, v) => [
+  m[0][0]*v[0] + m[0][1]*v[1] + m[0][2]*v[2],
+  m[1][0]*v[0] + m[1][1]*v[1] + m[1][2]*v[2],
+  m[2][0]*v[0] + m[2][1]*v[1] + m[2][2]*v[2],
+];
+
+const AZ = -0.6, EL = 0.5;    // camera: behind, above, slightly to the side
+function project(v, cx, cy, s) {
+  const x = v[0]*Math.cos(AZ) + v[1]*Math.sin(AZ);
+  const y = -v[0]*Math.sin(AZ) + v[1]*Math.cos(AZ);
+  return [cx + y*s, cy - (v[2]*Math.cos(EL) - x*Math.sin(EL))*s];
+}
+
+function drawAttitude(d, stale) {
+  const [g, w, h] = fitCanvas($("att"));
+  g.clearRect(0, 0, w, h);
+  const cx = w/2, cy = h/2 + 20, s = Math.min(w, h) * 0.30;
+
+  // world grid, fixed - the aircraft moves against it
+  g.strokeStyle = "#1b2430"; g.lineWidth = 1;
+  for (let i = -3; i <= 3; i++) {
+    const a = project([i*0.5, -1.5, 0], cx, cy, s), b = project([i*0.5, 1.5, 0], cx, cy, s);
+    const c = project([-1.5, i*0.5, 0], cx, cy, s), e = project([1.5, i*0.5, 0], cx, cy, s);
+    g.beginPath(); g.moveTo(a[0], a[1]); g.lineTo(b[0], b[1]); g.stroke();
+    g.beginPath(); g.moveTo(c[0], c[1]); g.lineTo(e[0], e[1]); g.stroke();
+  }
+
+  if (!d.rpy) { label(g, w, h, "waiting for data"); return; }
+
+  const pitch = (cfg.invert_pitch ? -1 : 1) * d.rpy[1];
+  const R = rot(d.rpy[0]*Math.PI/180, pitch*Math.PI/180, d.rpy[2]*Math.PI/180);
+
+  // arms: M1 front-right, M2 front-left, M3 rear-right, M4 rear-left
+  const arms = [
+    {p: [ 0.6, -0.6, 0], n: "1", c: "#f85149"},
+    {p: [ 0.6,  0.6, 0], n: "2", c: "#f0883e"},
+    {p: [-0.6, -0.6, 0], n: "3", c: "#58a6ff"},
+    {p: [-0.6,  0.6, 0], n: "4", c: "#3fb950"},
+  ];
+  const o = project(apply(R, [0,0,0]), cx, cy, s);
+
+  g.lineWidth = 3;
+  for (const a of arms) {
+    const t = project(apply(R, a.p), cx, cy, s);
+    g.strokeStyle = "#39465c";
+    g.beginPath(); g.moveTo(o[0], o[1]); g.lineTo(t[0], t[1]); g.stroke();
+    const pwm = d.motors ? d.motors[+a.n - 1] : 1000;
+    const r = 7 + Math.max(0, Math.min(1, (pwm - 1000) / 1000)) * 16;
+    g.fillStyle = a.c; g.globalAlpha = stale ? 0.25 : 0.9;
+    g.beginPath(); g.arc(t[0], t[1], r, 0, 7); g.fill(); g.globalAlpha = 1;
+    g.fillStyle = "#0b0e13"; g.font = "bold 11px monospace";
+    g.textAlign = "center"; g.textBaseline = "middle";
+    g.fillText(a.n, t[0], t[1]);
+  }
+
+  // nose marker and the up vector
+  const nose = project(apply(R, [1.0, 0, 0]), cx, cy, s);
+  g.strokeStyle = "#d6deeb"; g.lineWidth = 2;
+  g.beginPath(); g.moveTo(o[0], o[1]); g.lineTo(nose[0], nose[1]); g.stroke();
+  const up = project(apply(R, [0, 0, 0.7]), cx, cy, s);
+  g.strokeStyle = "#58a6ff";
+  g.beginPath(); g.moveTo(o[0], o[1]); g.lineTo(up[0], up[1]); g.stroke();
+
+  g.fillStyle = "#7d8da5"; g.font = "11px monospace"; g.textAlign = "left";
+  g.fillText("nose = white, up = blue, motor size = throttle", 8, h - 10);
+  if (stale) label(g, w, h, "STALE — no data");
+}
+
+function label(g, w, h, text) {
+  g.fillStyle = "rgba(248,81,73,.9)"; g.font = "bold 16px monospace";
+  g.textAlign = "center"; g.textBaseline = "middle";
+  g.fillText(text, w/2, 26);
+}
+
+/* ---------- map drawing ---------- */
+function drawMap(nav, d, stale) {
+  const [g, w, h] = fitCanvas($("map"));
+  g.clearRect(0, 0, w, h);
+  const cx = w/2, cy = h/2;
+
+  // scale: fit the track, minimum 1 m across
+  let span = 1.0;
+  for (const p of track) span = Math.max(span, Math.abs(p[0])*2.2, Math.abs(p[1])*2.2);
+  const s = Math.min(w, h) / span;
+
+  // grid at a round spacing
+  const step = span > 8 ? 2 : span > 3 ? 1 : span > 1.2 ? 0.5 : 0.1;
+  g.strokeStyle = "#1b2430"; g.lineWidth = 1; g.beginPath();
+  for (let v = -span; v <= span; v += step) {
+    g.moveTo(cx + v*s, 0); g.lineTo(cx + v*s, h);
+    g.moveTo(0, cy + v*s); g.lineTo(w, cy + v*s);
+  }
+  g.stroke();
+  g.strokeStyle = "#2c3a4f"; g.beginPath();
+  g.moveTo(cx, 0); g.lineTo(cx, h); g.moveTo(0, cy); g.lineTo(w, cy); g.stroke();
+
+  // the track: x north/forward-ish on screen up, y left on screen left
+  g.strokeStyle = "#58a6ff"; g.lineWidth = 2; g.beginPath();
+  track.forEach((p, i) => {
+    const X = cx - p[1]*s, Y = cy - p[0]*s;
+    i ? g.lineTo(X, Y) : g.moveTo(X, Y);
+  });
+  g.stroke();
+
+  // current position and heading
+  const X = cx - (nav.y || 0)*s, Y = cy - (nav.x || 0)*s;
+  g.fillStyle = nav.integrating ? "#3fb950" : "#d29922";
+  g.globalAlpha = stale ? 0.3 : 1;
+  g.beginPath(); g.arc(X, Y, 6, 0, 7); g.fill();
+  if (d.rpy) {
+    const psi = (d.rpy[2] + (cfg.yaw_offset_deg || 0)) * Math.PI/180;
+    g.strokeStyle = "#d6deeb"; g.lineWidth = 2; g.beginPath();
+    g.moveTo(X, Y);
+    g.lineTo(X - Math.sin(psi)*22, Y - Math.cos(psi)*22);
+    g.stroke();
+  }
+  g.globalAlpha = 1;
+
+  g.fillStyle = "#7d8da5"; g.font = "11px monospace"; g.textAlign = "left";
+  g.fillText(`grid ${step} m · start = centre · up = +x (nose at zero heading)`,
+             8, h - 10);
+  if (!nav.integrating) {
+    g.fillStyle = "rgba(210,153,34,.95)"; g.font = "bold 13px monospace";
+    g.textAlign = "center";
+    g.fillText("NOT INTEGRATING", w/2, 22);
+  }
+}
+</script>
+</body>
+</html>

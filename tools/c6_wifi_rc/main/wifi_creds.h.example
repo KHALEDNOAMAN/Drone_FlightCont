@@ -1,0 +1,35 @@
+#ifndef WIFI_CREDS_H
+#define WIFI_CREDS_H
+
+/* Copy to wifi_creds.h and fill in. That file is gitignored. */
+
+/* Every SSID here MUST be 2.4 GHz. The ESP32-C6 is 2.4 GHz only - it
+ * supports 802.11ax but not the 5 GHz band, so a "*-5G" SSID will never
+ * associate no matter how correct the password is.
+ *
+ * List as many as you like. The C6 scans at boot and joins whichever
+ * one is actually in range (strongest signal wins), so order does not
+ * matter and an absent network costs nothing but scan time. Typical
+ * use: the home router plus a phone hotspot for field work. SSIDs must
+ * match exactly, including spaces and capitalisation. */
+#define STA_NETWORKS { \
+    { "your-2.4GHz-ssid",   "your-password"    }, \
+    { "your-phone-hotspot", "hotspot-password" }, \
+}
+
+/* Fallback AP, used when USE_WIFI_STA is 0 in main.c: the C6 stops looking
+ * for a router and becomes one. Field use, where there is no network to
+ * join. Dashboard is at http://192.168.4.1 once you are on it.
+ *
+ * WPA2 requires at least 8 characters. An empty AP_PASS gives an OPEN
+ * network - anyone in range can reach the dashboard, which can send
+ * console commands (MOT spins a motor, SET changes gains) to the aircraft.
+ * Arming stays RC-only. Do not ship it empty.
+ *
+ * Keep AP_SSID as DRONE_TELEM unless you have a reason: the project's documents
+ * grepping the flashed .bin for that string to tell an AP build from an STA
+ * build, and renaming it silently breaks that check. */
+#define AP_SSID  "DRONE_TELEM"
+#define AP_PASS  "change-me"   /* min 8 chars */
+
+#endif

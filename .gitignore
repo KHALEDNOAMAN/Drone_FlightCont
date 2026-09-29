@@ -1,0 +1,36 @@
+# ESP-IDF / CMake build output
+build/
+managed_components/
+dependencies.lock
+sdkconfig
+sdkconfig.old
+
+# Compiled objects and binaries
+*.o
+*.bin
+*.elf
+*.map
+tools/pid_replay/pidcore.dll
+tools/pid_replay/pidcore.so
+tools/pid_replay/pidcore.lib
+
+# Editor settings
+.vscode/
+
+# C6 WiFi credentials (copy wifi_creds.h.example)
+tools/c6_wifi_rc/main/wifi_creds.h
+
+# Python bytecode
+__pycache__/
+
+# Bench and blackbox capture output (regenerable). The replay fixtures in
+# tools/fixtures/*.csv.gz are not matched by these patterns.
+captures/
+*.bb
+*_s*.csv
+*_LATEST.csv
+*.params.txt
+mag*.csv
+sweep*.csv
+usb*.csv
+*_fft.png

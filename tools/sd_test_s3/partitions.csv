@@ -1,0 +1,10 @@
+# EXACT COPY of the repo-root partitions.csv, on purpose: identical
+# layout means flashing this test and flashing the flight firmware back
+# only rewrites the factory app slot. NVS (params, level cal, mag cal)
+# stays where it is, untouched, both directions.
+#
+# Name,     Type, SubType,  Offset,   Size
+nvs,        data, nvs,      0x9000,   0x6000
+phy_init,   data, phy,      0xf000,   0x1000
+factory,    app,  factory,  0x10000,  0x200000
+blackbox,   data, fat,      0x210000, 0xC00000
